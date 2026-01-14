@@ -1,4 +1,4 @@
-const API = 'http://localhost:3000/api';
+const API = '/api';
 let allData = []; 
 let currentPage = 1;
 const rowsPerPage = 5; 
