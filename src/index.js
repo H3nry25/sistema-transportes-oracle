@@ -163,21 +163,46 @@ app.delete('/api/pasajes/:id', async (req, res) => {
 app.post('/api/exportar', async (req, res) => {
     let conn;
     try {
-        const nombreArchivo = `Reporte_${Date.now()}.csv`;
-        
         conn = await oracledb.getConnection(dbConfig);
-        await conn.execute(
-            `BEGIN SPU_EXPORTAR_PASAJES_CSV(:n); END;`, 
-            { n: nombreArchivo }
-        );
-        const rutaCompleta = path.join(process.env.CSV_EXPORT_PATH, nombreArchivo);
         
-        if (fs.existsSync(rutaCompleta)) {
-            res.download(rutaCompleta, nombreArchivo);
-        } else {
-            res.status(404).json({ error: 'El archivo no se generó en la ruta esperada.' });
-        }
+        const result = await conn.execute(
+            `BEGIN SPU_CONSULTAR_PASAJES(:c); END;`,
+            { c: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT } }
+        );
+        const rows = await result.outBinds.c.getRows();
+        await result.outBinds.c.close();
+
+        let csvContent = "ID,RUTA,UNIDAD,TIPO,CEDULA,CLIENTE,VALOR,FECHA,HORA\n";
+
+        rows.forEach(row => {
+            const clean = (text) => String(text || '').replace(/,/g, ' ');
+            
+            let fechaStr = '';
+            if(row[7]) {
+                try { fechaStr = row[7].toISOString().substring(0,10); } catch(e) { fechaStr = String(row[7]); }
+            }
+
+            const linea = [
+                row[0],           
+                clean(row[1]),    
+                clean(row[2]),   
+                clean(row[3]),    
+                clean(row[4]),    
+                clean(row[5]),    
+                row[6],           
+                fechaStr,         
+                clean(row[8])     
+            ].join(',');         
+
+            csvContent += linea + "\n";
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=Reporte_Transporte_${Date.now()}.csv`);
+        res.status(200).send(csvContent);
+
     } catch (e) {
+        console.error("Error generando CSV:", e);
         res.status(500).json({ error: e.message });
     } finally {
         if (conn) await conn.close();
